@@ -1,0 +1,10 @@
+{
+  "name": "todo",
+  "title": "To-do",
+  "icon": "icon.svg",
+  "version": "0.1.0",
+  "api": 23,
+  "description": "Your own to-dos for each workspace, kept in Mirador with no account or service to sign in to. The workspace's To-do tab lists what's open, the soonest due first, with what's overdue or due today standing out: add one with its time in plain words (\"send the summary fri 14:00\"), tick it off, edit it, or undo. Agents reach them too: ask any conversation to note something for later, and a morning routine can list every workspace's to-dos for the day ahead.",
+  "tagline": "Your own to-dos for each workspace, in a tab beside the chat and within the agent's reach.",
+  "canvas": { "host": "host.ts", "view": "view.js" }
+}
