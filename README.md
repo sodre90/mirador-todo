@@ -10,6 +10,11 @@ the line as typed, and the time picker sets a time of your own. A lone number su
 Tick one off and it moves to Done; Undo brings it back. Edit changes its text, note and time, and Delete has an Undo
 too. Done to-dos are kept for 30 days.
 
+When a to-do comes due, Mirador tells you: a notification on this computer, and on your phone if the Mirador app there
+lets plugins' notifications through. Those of one workspace that come due together share one notification. Each to-do
+rings once for its time, and again only when you give it a new one; one that came due while Mirador was closed rings as
+it starts. A time that has already passed when you set it doesn't ring.
+
 The words are English, as Mirador's `/remind` reads them: `9`, `14:30`, `2pm`, `noon`, `tomorrow`, `mon`…`sun`,
 `tonight`, `next week`, `in 30 min`, `3h`, `2d`. A day without a time means its morning (09:00), and "today" means the
 evening (18:00).

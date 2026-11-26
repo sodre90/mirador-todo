@@ -1,26 +1,29 @@
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import host, { tabState, watchWorkspaces, type TabAction } from "../host.ts";
 import type { CanvasToolContext, PluginBackgroundContext, PluginWorkspace, ToolCaller, WorkspaceTabContext } from "../mirador/api.ts";
-import { DONE_KEPT_MS, todosIn, type Todo } from "../todos.ts";
+import { LOOK_AGAIN_MS, ringDue } from "../ring.ts";
+import { DONE_KEPT_MS, newTodo, saveTodos, todosIn, type Todo } from "../todos.ts";
 
 /** Thursday 26 November 2026, 10:30 on the Mac's own clock. */
 const NOW = new Date(2026, 10, 26, 10, 30);
-const at = (day: number, hour: number, minute = 0) => new Date(2026, 10, day, hour, minute).getTime();
+const at = (day: number, hour: number, minute = 0, second = 0) => new Date(2026, 10, day, hour, minute, second).getTime();
 
 const kernel: PluginWorkspace = { id: "w-kernel", name: "kernel", folder: "/work/kernel" };
 const website: PluginWorkspace = { id: "w-site", name: "website", folder: "/work/site" };
 
-/** The plugin's storage across workspaces, as one plain object, with each workspace's tab counting its redraws. */
+/** The plugin's storage across workspaces, as one plain object, with each workspace's tab counting its redraws and keeping what it was told. */
 function fakeMirador() {
   const kept: Record<string, unknown> = {};
   const storage = { get: (key: string) => kept[key], set: (key: string, value: unknown) => void (kept[key] = value) };
   const redraws = new Map<string, number>();
+  const told: { workspace: string; title: string; body: string }[] = [];
   const tabOf = (workspace: PluginWorkspace) =>
     ({
       workspace,
       storage: { get: () => undefined, set: () => undefined },
       sharedStorage: storage,
       changed: () => redraws.set(workspace.id, (redraws.get(workspace.id) ?? 0) + 1),
+      notify: (said: { title: string; body: string }) => void told.push({ workspace: workspace.name, ...said }),
     }) as unknown as WorkspaceTabContext;
   const background = {
     workspaces: () => [kernel, website],
@@ -32,7 +35,7 @@ function fakeMirador() {
     storage,
   } as unknown as PluginBackgroundContext;
   const toolIn = (workspace: PluginWorkspace, caller: ToolCaller = "agent") => ({ workspace, storage, caller }) as unknown as CanvasToolContext;
-  return { kept, storage, redraws, tabOf, background, toolIn };
+  return { kept, storage, redraws, told, tabOf, background, toolIn };
 }
 
 let mirador: ReturnType<typeof fakeMirador>;
@@ -220,4 +223,72 @@ test("the tools load on request, so they cost a conversation nothing until it ne
   expect(host.guidance?.summary).toBeTruthy();
   expect(Object.keys(host.tools)).toEqual(["todo_add", "todo_list", "todo_update"]);
   expect(host.tools.todo_add!.command).toBeDefined();
+});
+
+describe("ringing", () => {
+  const ringAt = (time: number) => {
+    setSystemTime(new Date(time));
+    return ringDue(mirador.background);
+  };
+  const addAt = (line: string, dueAt: number, workspace = kernel) => act({ kind: "add", line, dueAt, readsTime: false }, workspace) as Todo;
+
+  test("a to-do rings once as it comes due, in its own words, through its workspace, and the ringer wakes for it", () => {
+    run("todo_add", { text: "send the summary", due: "2026-11-26T11:00:00", note: "CB-123" }, mirador.toolIn(kernel));
+    expect(ringAt(at(26, 10, 59, 50))).toBe(10_000);
+    expect(mirador.told).toEqual([]);
+    ringAt(at(26, 11));
+    expect(mirador.told).toEqual([{ workspace: "kernel", title: "send the summary", body: "Due today 11:00 · CB-123" }]);
+    expect(ringAt(at(26, 11, 5))).toBe(LOOK_AGAIN_MS);
+    expect(mirador.told).toHaveLength(1);
+  });
+
+  test("those that come due together ring as one notification for each workspace", () => {
+    addAt("review the patch", at(26, 12));
+    addAt("answer Anna", at(26, 12));
+    addAt("publish the page", at(26, 12), website);
+    ringAt(at(26, 12, 1));
+    expect(mirador.told).toEqual([
+      { workspace: "kernel", title: "2 to-dos are due", body: "review the patch · answer Anna" },
+      { workspace: "website", title: "publish the page", body: "Due today 12:00" },
+    ]);
+  });
+
+  test("done ones, ones with no time, and those of a workspace Mirador has closed don't ring", () => {
+    const done = addAt("done already", at(26, 12));
+    act({ kind: "done", id: done.id, done: true });
+    act({ kind: "add", line: "some day", dueAt: null, readsTime: false });
+    saveTodos(mirador.storage, [...todos(), { ...done, id: "elsewhere", workspaceId: "w-closed", workspaceName: "old", doneAt: null }]);
+    ringAt(at(26, 13));
+    expect(mirador.told).toEqual([]);
+  });
+
+  test("a to-do that came due while Mirador was off rings once as it starts", () => {
+    saveTodos(mirador.storage, [{ ...newTodo(kernel, { text: "call the bank" }, at(25, 9)), dueAt: at(25, 18) }]);
+    watchWorkspaces(mirador.background);
+    watchWorkspaces(mirador.background);
+    expect(mirador.told).toEqual([{ workspace: "kernel", title: "call the bank", body: "Due yesterday 18:00" }]);
+  });
+
+  test("a to-do given a new time rings again then, and a time already past as it's given doesn't ring", () => {
+    const todo = addAt("deploy", at(26, 11));
+    ringAt(at(26, 11));
+    act({ kind: "change", id: todo.id, dueAt: at(26, 15) });
+    ringAt(at(26, 15));
+    act({ kind: "change", id: todo.id, dueAt: at(26, 14) });
+    addAt("already late", at(26, 9));
+    ringAt(at(26, 15, 30));
+    expect(mirador.told.map(({ title, body }) => `${title}: ${body}`)).toEqual(["deploy: Due today 11:00", "deploy: Due today 15:00"]);
+  });
+
+  test("a to-do Mirador couldn't tell of stays due, and rings at the next look", () => {
+    const failed = spyOn(console, "error").mockImplementation(() => undefined);
+    addAt("deploy", at(26, 11));
+    const refusing = { ...mirador.background, inWorkspace: () => ({ notify: () => { throw new Error("Mirador can't notify yet."); } }) } as unknown as PluginBackgroundContext;
+    setSystemTime(new Date(at(26, 11)));
+    ringDue(refusing);
+    expect(failed).toHaveBeenCalledTimes(1);
+    failed.mockRestore();
+    ringAt(at(26, 11, 1));
+    expect(mirador.told.map(({ title }) => title)).toEqual(["deploy"]);
+  });
 });

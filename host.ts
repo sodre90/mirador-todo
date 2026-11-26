@@ -1,5 +1,6 @@
 import type { CanvasHost, CanvasPluginStorage, CanvasToolContext, PluginBackgroundContext, PluginWorkspace, WorkspaceTabContext } from "./mirador/api.ts";
 import { changed, doneOf, inWorkspace, newTodo, openOf, saveTodos, todoLine, todoNamed, todosIn, type Todo, type TodoChange } from "./todos.ts";
+import { keepRinging } from "./ring.ts";
 import { readDue, readTodoLine } from "./when.ts";
 
 /** The done to-dos the tab lists, the latest first. */
@@ -7,15 +8,21 @@ const DONE_SHOWN = 20;
 /** How far back todo_list looks for done ones, when asked for them. */
 const DONE_LISTED_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Mirador's workspaces, kept from `background` so a tool's change can redraw its workspace's tab. */
+/** Mirador's workspaces, kept from `background` so a tool's change can redraw its workspace's tab, and to ring. */
 let opened: PluginBackgroundContext | null = null;
 
+/** Starts ringing for to-dos as they come due; null stops it. */
 export function watchWorkspaces(context: PluginBackgroundContext | null) {
   opened = context;
+  keepRinging(context);
 }
+
+/** A to-do's time may have changed, so the ringer wakes for it, rather than at its next look. */
+const ringOnTime = () => keepRinging(opened);
 
 /** Redraws the workspace's tab, wherever it's open; nothing to redraw for a workspace Mirador has closed. */
 function tabChanged(workspaceId: string) {
+  ringOnTime();
   try {
     opened?.inWorkspace(workspaceId).changed();
   } catch {
@@ -166,7 +173,10 @@ function tabAction(action: unknown, context: WorkspaceTabContext): unknown {
         return addTodo(storage, { ...asked.todo, workspaceId: context.workspace.id, workspaceName: context.workspace.name });
     }
   })();
-  if (asked.kind !== "read") context.changed();
+  if (asked.kind !== "read") {
+    ringOnTime();
+    context.changed();
+  }
   return answer;
 }
 

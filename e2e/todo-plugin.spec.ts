@@ -8,7 +8,7 @@
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { addWorkspace, callCanvasTool, createProfile, signIn, untilFramePainted } from "./helpers.ts";
+import { addWorkspace, allowNotifications, callCanvasTool, createProfile, notificationsShown, signIn, untilFramePainted } from "./helpers.ts";
 import { TestHost, writeBunProgram } from "./test-host.ts";
 
 const PLUGIN = process.env.MIRADOR_TODO_PLUGIN ?? import.meta.dirname;
@@ -43,6 +43,7 @@ async function startConversation(page: Page) {
 }
 
 test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the agent and the slash menu reach them", async ({ page }) => {
+  await allowNotifications(page);
   await signIn(page, host);
   await addWorkspace(page, host.projectDir);
   const profiles = await createProfile(page, "helper", "", "", "opencode");
@@ -148,5 +149,13 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
     await expect(page.locator(".plugin-command-reply:visible")).toContainText("Added to the To-do tab of project");
     await expect(row(page, "book the room").locator(".due")).toHaveText(/^(Today|Tomorrow) 11:00$/);
     await expect(composer).toHaveValue("");
+  });
+
+  await test.step("a to-do rings on this computer as it comes due, naming its workspace, while one already overdue as it was added never did", async () => {
+    const inAFewSeconds = new Date(Date.now() + 3_000).toISOString();
+    await callCanvasTool(host, conversationId, "use_tool", { tool: "todo_add", input: { text: "post the stand-up notes", due: inAFewSeconds } });
+    await expect
+      .poll(() => notificationsShown(page), { timeout: 15_000 })
+      .toEqual([{ title: "post the stand-up notes", body: expect.stringMatching(/^project · Due today \d{2}:\d{2}$/), tag: expect.stringMatching(/^[0-9a-f-]{36}$/), closed: false }]);
   });
 });

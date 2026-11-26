@@ -13,6 +13,8 @@ export interface Todo {
   dueAt: number | null;
   createdAt: number;
   doneAt: number | null;
+  /** The due time it last rang for, so it rings once for each time it's given. */
+  rungFor?: number;
 }
 
 /** What changes in a to-do; null takes a note or a due time off. */
@@ -53,6 +55,9 @@ function checkedNote(note: string | null | undefined): string | null {
   return written === "" ? null : written;
 }
 
+/** A due time already past as it's set doesn't ring: the user is looking at it. */
+const rungIfPast = (dueAt: number | null, now: number) => (dueAt !== null && dueAt <= now ? { rungFor: dueAt } : {});
+
 export function newTodo(workspace: PluginWorkspace, written: { text: string; note?: string | null; dueAt?: number | null }, now = Date.now()): Todo {
   return {
     id: crypto.randomUUID(),
@@ -63,6 +68,7 @@ export function newTodo(workspace: PluginWorkspace, written: { text: string; not
     dueAt: written.dueAt ?? null,
     createdAt: now,
     doneAt: null,
+    ...rungIfPast(written.dueAt ?? null, now),
   };
 }
 
@@ -71,7 +77,7 @@ export function changed(todo: Todo, change: TodoChange, now = Date.now()): Todo 
     ...todo,
     ...(change.text !== undefined && { text: checkedText(change.text) }),
     ...(change.note !== undefined && { note: checkedNote(change.note) }),
-    ...(change.dueAt !== undefined && { dueAt: change.dueAt }),
+    ...(change.dueAt !== undefined && { dueAt: change.dueAt, ...rungIfPast(change.dueAt, now) }),
     ...(change.done !== undefined && { doneAt: change.done ? (todo.doneAt ?? now) : null }),
   };
 }

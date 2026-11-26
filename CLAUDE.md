@@ -1,6 +1,6 @@
 # To-do for Mirador
 
-A Mirador workspace-tab plugin (plugin API 23). See README.md for what it does and how to run it.
+A Mirador workspace-tab plugin (plugin API 24). See README.md for what it does and how to run it.
 
 - Bun and TypeScript for the host code, strict; imports carry their `.ts` extensions. The view is plain JavaScript in `view.js`, with no build step.
 - `bun run typecheck` and `bun run test` (not a bare `bun test`, which would pick up the Playwright spec) before every commit, and the e2e in a Mirador checkout for anything the user sees.
@@ -8,6 +8,7 @@ A Mirador workspace-tab plugin (plugin API 23). See README.md for what it does a
 - Every to-do lives under one plugin-wide storage key (`todos`), each carrying its `workspaceId`. A tool's context knows only its own workspace and storage can't list keys, so per-workspace keys would hide the other workspaces from `todo_list`'s `all_workspaces`. The tab reads that key through `sharedStorage`.
 - A tool's change redraws its workspace's tab through the background context kept in `host.ts` (`watchWorkspaces`), since a tool's context has no `changed()`.
 - `when.ts` holds a copy of the time-word parser of Mirador's `shared/reminders.ts` (`parseReminderTime`), which plugins can't import. Keep the two in step, and keep the words English, as `/remind`'s are.
+- `ring.ts` rings for due to-dos through `notify` (plugin API 24), from a timer `background` starts: it wakes at the next due time, or every 30 seconds at most, so a to-do still rings soon after the Mac sleeps. `rungFor` holds the due time a to-do last rang for; a due time already past as it's set is marked rung. Every change through a tool or the tab re-times the timer.
 - `host.ts` keeps the agent's text as written; only the user's slash command and the tab read a time out of the words.
 - The plugin gives `guidance.summary`, so it loads on request and its tools run through `use_tool`. Keep the instructions line short; every conversation that loads it pays for it.
 - Names over comments: keep comments for a genuine "why" that a name can't carry.
