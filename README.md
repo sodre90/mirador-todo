@@ -15,9 +15,9 @@ lets plugins' notifications through. Those of one workspace that come due togeth
 rings once for its time, and again only when you give it a new one; one that came due while Mirador was closed rings as
 it starts. A time that has already passed when you set it doesn't ring.
 
-The words are English, as Mirador's `/remind` reads them: `9`, `14:30`, `2pm`, `noon`, `tomorrow`, `mon`…`sun`,
-`tonight`, `next week`, `in 30 min`, `3h`, `2d`. A day without a time means its morning (09:00), and "today" means the
-evening (18:00).
+Mirador reads the words, as its `/remind` does, in English: `9`, `14:30`, `2pm`, `noon`, `tomorrow`, `mon`…`sun`,
+`tonight`, `next week`, `in 30 min`, `3h`, `2d`. A day without a time means your morning, as set for reminders in
+Mirador (09:00 unless you changed it), and "today" means the evening (18:00).
 
 ## For agents
 

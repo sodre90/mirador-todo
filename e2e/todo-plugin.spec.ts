@@ -8,7 +8,7 @@
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { addWorkspace, allowNotifications, callCanvasTool, createProfile, notificationsShown, signIn, untilFramePainted } from "./helpers.ts";
+import { addWorkspace, allowNotifications, callCanvasTool, createProfile, notificationsShown, openSettings, signIn, untilFramePainted } from "./helpers.ts";
 import { TestHost, writeBunProgram } from "./test-host.ts";
 
 const PLUGIN = process.env.MIRADOR_TODO_PLUGIN ?? import.meta.dirname;
@@ -77,6 +77,15 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
     await expect(tabView(page).locator(".preview")).toContainText("No time; the words stay as typed.");
     await tabView(page).getByRole("button", { name: "Add" }).click();
     await expect(group(page, "No time").locator("li.row .text")).toHaveText(["read the chapter on friday"]);
+  });
+
+  await test.step("a day without a time means the morning set in Mirador's settings", async () => {
+    const settings = await openSettings(page, "Conversations");
+    await settings.getByLabel("Morning starts at").fill("07:30");
+    await settings.getByRole("button", { name: "Close" }).click();
+    await line.fill("water the plants tomorrow");
+    await expect(tabView(page).locator(".preview .due-chip")).toHaveText(/^Due (Today|Tomorrow) 07:30$/);
+    await line.fill("");
   });
 
   await test.step("a picked time wins over the words, and one that has passed is overdue", async () => {

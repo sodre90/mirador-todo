@@ -1,4 +1,4 @@
-import type { CanvasHost, CanvasPluginStorage, CanvasToolContext, PluginBackgroundContext, PluginWorkspace, WorkspaceTabContext } from "./mirador/api.ts";
+import type { CanvasHost, CanvasPluginStorage, CanvasToolContext, PluginBackgroundContext, PluginWorkspace, ReadsTimes, WorkspaceTabContext } from "./mirador/api.ts";
 import { changed, doneOf, inWorkspace, newTodo, openOf, saveTodos, todoLine, todoNamed, todosIn, type Todo, type TodoChange } from "./todos.ts";
 import { keepRinging } from "./ring.ts";
 import { readDue, readTodoLine } from "./when.ts";
@@ -56,7 +56,7 @@ function addTodo(storage: CanvasPluginStorage, todo: Todo): Todo {
 }
 
 /** A due time the agent or the user wrote: null for none, else read as ISO 8601 or plain words. */
-const dueFrom = (due: string | null | undefined, now: Date) => (due === undefined || due === null || due.trim() === "" ? null : readDue(due, now));
+const dueFrom = (due: string | null | undefined, now: Date, times: ReadsTimes) => (due === undefined || due === null || due.trim() === "" ? null : readDue(due, now, times));
 
 interface AddInput {
   text: string;
@@ -65,16 +65,16 @@ interface AddInput {
 }
 
 /** The user's slash command may say when in its text; the agent says it in `due`. */
-function writtenBy(input: AddInput, caller: CanvasToolContext["caller"], now: Date) {
-  if (input.due === undefined && caller === "user") return readTodoLine(input.text, now);
-  return { text: input.text, dueAt: dueFrom(input.due, now) };
+function writtenBy(input: AddInput, context: CanvasToolContext, now: Date) {
+  if (input.due === undefined && context.caller === "user") return readTodoLine(input.text, now, context);
+  return { text: input.text, dueAt: dueFrom(input.due, now, context) };
 }
 
 const where = (workspace: PluginWorkspace) => `the To-do tab of ${workspace.name}`;
 
 function addTool(input: unknown, context: CanvasToolContext): string {
   const now = new Date();
-  const written = writtenBy(input as AddInput, context.caller, now);
+  const written = writtenBy(input as AddInput, context, now);
   const todo = addTodo(context.storage, newTodo(context.workspace, { ...written, note: (input as AddInput).note }, now.getTime()));
   tabChanged(todo.workspaceId);
   return `Added to ${where(context.workspace)}:\n${todoLine(todo, now, { withWorkspace: false })}`;
@@ -116,7 +116,7 @@ function updateTool(input: unknown, context: CanvasToolContext): string {
     tabChanged(gone.workspaceId);
     return `Deleted: ${gone.text}`;
   }
-  const todo = changeTodo(context.storage, id, { done, text, note, ...(due !== undefined && { dueAt: dueFrom(due, now) }) });
+  const todo = changeTodo(context.storage, id, { done, text, note, ...(due !== undefined && { dueAt: dueFrom(due, now, context) }) });
   tabChanged(todo.workspaceId);
   return `Now:\n${todoLine(todo, now, { withWorkspace: todo.workspaceId !== context.workspace.id })}`;
 }
@@ -146,9 +146,9 @@ export type TabAction =
   | { kind: "restore"; todo: Todo };
 
 /** The line as typed, with the time its words name unless the user picked one or chose to keep the words. */
-function lineToAdd(action: Extract<TabAction, { kind: "add" }>, now: Date) {
+function lineToAdd(action: Extract<TabAction, { kind: "add" }>, now: Date, times: ReadsTimes) {
   if (action.dueAt !== null) return { text: action.line, dueAt: action.dueAt };
-  return action.readsTime ? readTodoLine(action.line, now) : { text: action.line, dueAt: null };
+  return action.readsTime ? readTodoLine(action.line, now, times) : { text: action.line, dueAt: null };
 }
 
 function tabAction(action: unknown, context: WorkspaceTabContext): unknown {
@@ -158,9 +158,9 @@ function tabAction(action: unknown, context: WorkspaceTabContext): unknown {
   const answer = (() => {
     switch (asked.kind) {
       case "read":
-        return readTodoLine(asked.line, now);
+        return readTodoLine(asked.line, now, context);
       case "add":
-        return addTodo(storage, newTodo(context.workspace, lineToAdd(asked, now), now.getTime()));
+        return addTodo(storage, newTodo(context.workspace, lineToAdd(asked, now, context), now.getTime()));
       case "change": {
         const { id, kind: _, ...change } = asked;
         return changeTodo(storage, id, change);

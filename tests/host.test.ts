@@ -3,6 +3,7 @@ import host, { tabState, watchWorkspaces, type TabAction } from "../host.ts";
 import type { CanvasToolContext, PluginBackgroundContext, PluginWorkspace, ToolCaller, WorkspaceTabContext } from "../mirador/api.ts";
 import { LOOK_AGAIN_MS, ringDue } from "../ring.ts";
 import { DONE_KEPT_MS, newTodo, saveTodos, todosIn, type Todo } from "../todos.ts";
+import { timesOnThursdayMorning } from "./times.ts";
 
 /** Thursday 26 November 2026, 10:30 on the Mac's own clock. */
 const NOW = new Date(2026, 10, 26, 10, 30);
@@ -19,6 +20,7 @@ function fakeMirador() {
   const told: { workspace: string; title: string; body: string }[] = [];
   const tabOf = (workspace: PluginWorkspace) =>
     ({
+      ...timesOnThursdayMorning(),
       workspace,
       storage: { get: () => undefined, set: () => undefined },
       sharedStorage: storage,
@@ -34,7 +36,7 @@ function fakeMirador() {
     },
     storage,
   } as unknown as PluginBackgroundContext;
-  const toolIn = (workspace: PluginWorkspace, caller: ToolCaller = "agent") => ({ workspace, storage, caller }) as unknown as CanvasToolContext;
+  const toolIn = (workspace: PluginWorkspace, caller: ToolCaller = "agent") => ({ ...timesOnThursdayMorning(), workspace, storage, caller }) as unknown as CanvasToolContext;
   return { kept, storage, redraws, told, tabOf, background, toolIn };
 }
 
