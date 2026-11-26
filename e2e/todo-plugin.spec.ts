@@ -8,7 +8,7 @@
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { addWorkspace, allowNotifications, callCanvasTool, createProfile, notificationsShown, openSettings, signIn, untilFramePainted } from "./helpers.ts";
+import { addWorkspace, allowNotifications, callCanvasTool, chooseInSettings, createProfile, notificationsShown, openSettings, signIn, untilFramePainted } from "./helpers.ts";
 import { TestHost, writeBunProgram } from "./test-host.ts";
 
 const PLUGIN = process.env.MIRADOR_TODO_PLUGIN ?? import.meta.dirname;
@@ -34,6 +34,16 @@ const tabView = (page: Page) => page.frameLocator(".canvas-panel:visible .canvas
 const tabToggle = (page: Page) => page.locator(".canvas-panel:visible .workspace-tab-toggle", { hasText: "To-do" });
 const group = (page: Page, name: string) => tabView(page).getByRole("region", { name });
 const row = (page: Page, text: string) => tabView(page).locator("li.row", { hasText: text });
+const composerOf = (page: Page) => tabView(page).locator(".composer");
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The 15th of the month some months from now, as the calendar names its day and the tab shows its time. */
+const fifteenthIn = (months: number) => {
+  const now = new Date();
+  const day = new Date(now.getFullYear(), now.getMonth() + months, 15);
+  const shown = `${WEEKDAYS[day.getDay()]} ${day.getDate()} ${MONTHS[day.getMonth()]}`;
+  return { name: `${shown} ${day.getFullYear()}`, shown };
+};
 
 async function startConversation(page: Page) {
   const previousUrl = page.url();
@@ -88,14 +98,43 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
     await line.fill("");
   });
 
-  await test.step("a picked time wins over the words, and one that has passed is overdue", async () => {
-    await line.fill("renew the certificate");
-    await tabView(page).getByLabel("Due", { exact: true }).fill("2020-01-01T10:00");
-    await expect(tabView(page).locator(".preview .due-chip")).toHaveText("Due Wed 1 Jan 10:00");
-    await line.press("Enter");
+  await test.step("a quick pick sets the time over the words, and Clear gives the words back", async () => {
+    await line.fill("call the bank tomorrow");
+    await composerOf(page).getByRole("button", { name: /^In 3 hours \d{2}:\d{2}$/ }).click();
+    await expect(composerOf(page).getByRole("button", { name: /^In 3 hours/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(tabView(page).locator(".preview .due-chip")).toHaveText(/^Due (Today|Tomorrow) \d{2}:\d{2}$/);
+    await expect(tabView(page).locator(".preview")).toContainText("in 3h");
+    await composerOf(page).getByRole("button", { name: "Clear" }).click();
+    await expect(tabView(page).locator(".preview .due-chip")).toHaveText(/^Due (Today|Tomorrow) 07:30$/);
+    await line.fill("");
+  });
+
+  await test.step("the calendar picks a day and a time, which win over the words, and Esc closes only the calendar", async () => {
+    const fifteenth = fifteenthIn(1);
+    await line.fill("plan the offsite fri 14:00");
+    await composerOf(page).getByRole("button", { name: "Pick a day…" }).click();
+    await composerOf(page).getByRole("button", { name: "Next month" }).click();
+    await composerOf(page).getByRole("button", { name: fifteenth.name, exact: true }).click();
+    await expect(composerOf(page).locator(".picked b")).toHaveText(`${fifteenth.shown} 07:30`);
+    await expect(tabView(page).locator(".preview")).toBeHidden();
+    await composerOf(page).getByRole("button", { name: "17:00", exact: true }).click();
+    await expect(composerOf(page).locator(".picked b")).toHaveText(`${fifteenth.shown} 17:00`);
+    await composerOf(page).getByLabel("Other time").fill("16:45");
+    await expect(composerOf(page).locator(".picked b")).toHaveText(`${fifteenth.shown} 16:45`);
+    await composerOf(page).getByLabel("Other time").press("Escape");
+    await expect(composerOf(page).locator(".calendar")).toHaveCount(0);
+    await expect(composerOf(page).locator(".picker")).toHaveText(/^In 3 hours.*Pick a day…$/);
+    await expect(tabView(page).locator(".preview .due-chip")).toHaveText(`Due ${fifteenth.shown} 16:45`);
+    await expect(line).toHaveValue("plan the offsite fri 14:00");
+    await composerOf(page).getByRole("button", { name: "Add" }).click();
+    await expect(row(page, "plan the offsite").locator(".due")).toHaveText(`${fifteenth.shown} 16:45`);
+    await expect(tabView(page).locator(".preview")).toBeHidden();
+  });
+
+  await test.step("one already past is overdue", async () => {
+    await callCanvasTool(host, conversationId, "use_tool", { tool: "todo_add", input: { text: "renew the certificate", due: "2020-01-01T10:00:00+01:00" } });
     await expect(group(page, "Overdue").locator("li.row .text")).toHaveText(["renew the certificate"]);
-    await expect(tabView(page).locator(".counts")).toHaveText("3 open · 1 overdue");
-    await expect(tabView(page).getByLabel("Due", { exact: true })).toHaveValue("");
+    await expect(tabView(page).locator(".counts")).toHaveText("4 open · 1 overdue");
   });
 
   await test.step("ticking one off moves it to Done, and Undo brings it back", async () => {
@@ -107,17 +146,37 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
     await expect(tabView(page).locator("details.done")).toBeHidden();
   });
 
-  await test.step("Edit changes the text, the note and the time", async () => {
+  await test.step("Edit changes the text, the note and the time, its calendar closing on Esc while the editor stays", async () => {
+    const fifteenth = fifteenthIn(2);
     await row(page, "read the chapter").hover();
     await row(page, "read the chapter").getByRole("button", { name: "Edit" }).click();
     const editor = tabView(page).locator("li.editor");
+    await expect(editor.getByRole("button", { name: "No time" })).toHaveAttribute("aria-pressed", "true");
     await editor.getByRole("textbox", { name: "To-do" }).fill("read the design chapter");
     await editor.getByRole("textbox", { name: "Note" }).fill("the one on storage");
-    await editor.getByLabel("Due").fill("2099-03-02T08:30");
+    await editor.getByRole("button", { name: "Pick a day…" }).click();
+    await editor.getByRole("button", { name: "Next month" }).click();
+    await editor.getByRole("button", { name: "Next month" }).focus();
+    await editor.getByRole("button", { name: "Next month" }).press("Escape");
+    await expect(editor.locator(".calendar")).toHaveCount(0);
+    await expect(editor).toHaveCount(1);
+    await editor.getByRole("button", { name: "Pick a day…" }).click();
+    await editor.getByRole("button", { name: "Next month" }).click();
+    await editor.getByRole("button", { name: fifteenth.name, exact: true }).click();
+    await editor.getByLabel("Other time").fill("08:30");
     await editor.getByRole("button", { name: "Save" }).click();
     await expect(editor).toHaveCount(0);
     await expect(group(page, "Coming up").locator("li.row", { hasText: "read the design chapter" }).locator(".note")).toHaveText("the one on storage");
-    await expect(row(page, "read the design chapter").locator(".due")).toHaveText("Mon 2 Mar 08:30");
+    await expect(row(page, "read the design chapter").locator(".due")).toHaveText(`${fifteenth.shown} 08:30`);
+  });
+
+  await test.step("No time in the editor takes the time off", async () => {
+    await row(page, "plan the offsite").hover();
+    await row(page, "plan the offsite").getByRole("button", { name: "Edit" }).click();
+    const editor = tabView(page).locator("li.editor");
+    await editor.getByRole("button", { name: "No time" }).click();
+    await editor.getByRole("button", { name: "Save" }).click();
+    await expect(group(page, "No time").locator("li.row .text")).toHaveText(["plan the offsite fri 14:00"]);
   });
 
   await test.step("Delete takes it out, and Undo puts it back", async () => {
@@ -136,7 +195,7 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
     expect(added).toContain("Added to the To-do tab of project");
     await expect(row(page, "reply to the release thread").locator(".note")).toHaveText("the one about the freeze");
     const listed = await callCanvasTool(host, conversationId, "use_tool", { tool: "todo_list", input: { all_workspaces: true } });
-    expect(listed).toContain("Open to-dos in every workspace, the soonest due first (4)");
+    expect(listed).toContain("Open to-dos in every workspace, the soonest due first (5)");
     expect(listed).toContain("[project]: renew the certificate");
     expect(listed.indexOf("renew the certificate")).toBeLessThan(listed.indexOf("reply to the release thread"));
   });
@@ -148,7 +207,7 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
     await expect(tabView(page).locator("details.done summary")).toHaveText("Done · 1");
     await tabView(page).locator("details.done summary").click();
     await expect(row(page, "renew the certificate").getByRole("checkbox")).toBeChecked();
-    await expect(tabView(page).locator(".counts")).toHaveText("3 open");
+    await expect(tabView(page).locator(".counts")).toHaveText("4 open");
   });
 
   await test.step("/todo:todo_add in the slash menu adds one, reading its time from the text, without the agent hearing of it", async () => {
@@ -167,4 +226,27 @@ test("the To-do tab adds, ticks, edits and deletes a workspace's to-dos, and the
       .poll(() => notificationsShown(page), { timeout: 15_000 })
       .toEqual([{ title: "post the stand-up notes", body: expect.stringMatching(/^project · Due today \d{2}:\d{2}$/), tag: expect.stringMatching(/^[0-9a-f-]{36}$/), closed: false }]);
   });
+
+  const screenshots = process.env.TODO_SCREENSHOTS;
+  if (screenshots) {
+    await test.step("screenshots of the tab, light and dark", async () => {
+      await page.setViewportSize({ width: 1500, height: 1000 });
+      const shoot = async (name: string) => {
+        await page.waitForTimeout(400);
+        await tabFrame(page).screenshot({ path: join(screenshots, `${name}.png`) });
+      };
+      for (const theme of ["Light", "Dark"]) {
+        await chooseInSettings(page, "Theme", theme);
+        await line.fill("send the summary fri 14:00");
+        await composerOf(page).getByRole("button", { name: "Pick a day…" }).click();
+        await shoot(`composer-${theme.toLowerCase()}`);
+        await line.press("Escape");
+        await row(page, "read the design chapter").hover();
+        await row(page, "read the design chapter").getByRole("button", { name: "Edit" }).click();
+        await tabView(page).locator("li.editor").getByRole("button", { name: "Pick a day…" }).click();
+        await shoot(`editor-${theme.toLowerCase()}`);
+        await tabView(page).locator("li.editor").getByRole("button", { name: "Cancel" }).click();
+      }
+    });
+  }
 });

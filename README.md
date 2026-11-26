@@ -6,7 +6,9 @@ itself, with no account or service to sign in to.
 The workspace's **To-do** tab lists what's open, the soonest due first, in groups: Overdue, Today, Coming up and No
 time. To add one, type a line with its time in plain words at the end or the start, such as "send the summary fri
 14:00", "call the bank tomorrow" or "in 3h check the build". A preview shows the time it read. **Keep the words** adds
-the line as typed, and the time picker sets a time of your own. A lone number such as "java 21" stays part of the text.
+the line as typed. To set a time of your own, take a quick pick under the line (in 3 hours, this evening, tomorrow, next
+week), or **Pick a day…** for a calendar with times of day beside it. A lone number such as "java 21" stays part of
+the text.
 Tick one off and it moves to Done; Undo brings it back. Edit changes its text, note and time, and Delete has an Undo
 too. Done to-dos are kept for 30 days.
 

@@ -13,6 +13,8 @@ const THURSDAY_MORNING: Record<string, Date> = {
   "mon 9:00": on(30, 9),
   "mon 9:15": on(30, 9, 15),
   tomorrow: on(27, 9),
+  "this evening": on(26, 18),
+  "next week": on(30, 9),
   "in 3h": on(26, 13, 30),
   "in 30 min": on(26, 11),
   "15:30": on(26, 15, 30),

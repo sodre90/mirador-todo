@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
-import host, { tabState, watchWorkspaces, type TabAction } from "../host.ts";
+import host, { picks, tabState, watchWorkspaces, type TabAction } from "../host.ts";
 import type { CanvasToolContext, PluginBackgroundContext, PluginWorkspace, ToolCaller, WorkspaceTabContext } from "../mirador/api.ts";
 import { LOOK_AGAIN_MS, ringDue } from "../ring.ts";
 import { DONE_KEPT_MS, newTodo, saveTodos, todosIn, type Todo } from "../todos.ts";
@@ -166,6 +166,26 @@ describe("the To-do tab", () => {
     expect(act({ kind: "read", line: "send the summary fri 14:00" })).toEqual({ text: "send the summary", dueAt: at(27, 14) });
     expect(todos()).toEqual([]);
     expect(mirador.redraws.size).toBe(0);
+  });
+
+  test("offers quick picks as Mirador reads their words, soonest first, and the morning, without changing anything", () => {
+    expect(act({ kind: "picks" })).toEqual({
+      quick: [
+        { words: "in 3h", dueAt: at(26, 13, 30) },
+        { words: "this evening", dueAt: at(26, 18) },
+        { words: "tomorrow", dueAt: at(27, 9) },
+        { words: "next week", dueAt: at(30, 9) },
+      ],
+      morning: 9 * 60,
+    });
+    expect(mirador.redraws.size).toBe(0);
+  });
+
+  test("drops a quick pick that lands on an earlier one's time, as this evening does three hours before it", () => {
+    const threeHoursBeforeEvening = new Date(2026, 10, 26, 15, 0);
+    const evening = { at: new Date(2026, 10, 26, 18, 0), rest: "" };
+    const times = { readTime: (words: string) => (words === "in 3h" || words === "this evening" ? evening : null), morningMinutes: () => 7 * 60 + 30 };
+    expect(picks(threeHoursBeforeEvening, times)).toEqual({ quick: [{ words: "in 3h", dueAt: evening.at.getTime() }], morning: 450 });
   });
 
   test("adds a line with the time its words name, a picked time, or none when the user kept the words", () => {

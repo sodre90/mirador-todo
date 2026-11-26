@@ -137,8 +137,36 @@ export function tabState(context: WorkspaceTabContext): TabState {
   return { workspace: context.workspace.name, open: openOf(here), done: doneOf(here).slice(0, DONE_SHOWN) };
 }
 
+/** The tab's quick picks for a due time, in the words Mirador's own /later offers. */
+const QUICK_WORDS = ["in 3h", "this evening", "tomorrow", "next week"];
+
+export interface QuickTime {
+  words: string;
+  dueAt: number;
+}
+
+/** What the tab's time picker offers: its quick picks, and the user's morning, which its calendar's days start at. */
+export interface Picks {
+  quick: QuickTime[];
+  morning: number;
+}
+
+/**
+ * The quick picks as Mirador reads their words now, soonest first, one that lands on an earlier one's time left out; and
+ * the morning. Asked for as the user comes to the picker, so a morning changed in Mirador's settings meanwhile shows.
+ */
+export function picks(now: Date, { readTime, morningMinutes }: ReadsTimes): Picks {
+  const read = QUICK_WORDS.flatMap((words) => {
+    const at = readTime(words, now)?.at;
+    return at ? [{ words, dueAt: at.getTime() }] : [];
+  });
+  const quick = read.filter(({ dueAt }, index) => read.findIndex((other) => other.dueAt === dueAt) === index).sort((a, b) => a.dueAt - b.dueAt);
+  return { quick, morning: morningMinutes() };
+}
+
 export type TabAction =
   | { kind: "read"; line: string }
+  | { kind: "picks" }
   | { kind: "add"; line: string; dueAt: number | null; readsTime: boolean }
   | { kind: "change"; id: string; text?: string; note?: string | null; dueAt?: number | null }
   | { kind: "done"; id: string; done: boolean }
@@ -159,6 +187,8 @@ function tabAction(action: unknown, context: WorkspaceTabContext): unknown {
     switch (asked.kind) {
       case "read":
         return readTodoLine(asked.line, now, context);
+      case "picks":
+        return picks(now, context);
       case "add":
         return addTodo(storage, newTodo(context.workspace, lineToAdd(asked, now, context), now.getTime()));
       case "change": {
@@ -173,7 +203,7 @@ function tabAction(action: unknown, context: WorkspaceTabContext): unknown {
         return addTodo(storage, { ...asked.todo, workspaceId: context.workspace.id, workspaceName: context.workspace.name });
     }
   })();
-  if (asked.kind !== "read") {
+  if (asked.kind !== "read" && asked.kind !== "picks") {
     ringOnTime();
     context.changed();
   }
